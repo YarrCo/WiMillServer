@@ -71,6 +71,7 @@ class DeviceFileItem(WiMillBaseModel):
     file_name: str
     file_size: int | None = None
     modified_at: str | None = None
+    is_dir: bool = False
 
 
 class DeviceFilesRequest(WiMillBaseModel):
@@ -184,4 +185,5 @@ class DeviceFileInfo(WiMillBaseModel):
     file_name: str
     file_size: int | None = None
     modified_at: str | None = None
+    is_dir: bool = False
     synced_at: str

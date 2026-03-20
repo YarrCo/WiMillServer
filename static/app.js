@@ -213,6 +213,20 @@
         `).join("") || '<tr><td colspan="6" class="empty-state">No activity yet.</td></tr>';
     }
 
+    function renderDeviceFiles(deviceFiles) {
+        const bodyEl = document.getElementById("device-files-table-body");
+        if (!bodyEl) return;
+        bodyEl.innerHTML = deviceFiles.map((item) => `
+            <tr>
+                <td><span class="badge ${item.is_dir ? "badge-pending" : "badge-neutral"}">${item.is_dir ? "DIR" : "FILE"}</span></td>
+                <td>${escapeHtml(item.file_name)}</td>
+                <td>${item.is_dir ? "-" : formatBytes(item.file_size)}</td>
+                <td>${escapeHtml(item.modified_at || "-")}</td>
+                <td>${escapeHtml(item.synced_at)}</td>
+            </tr>
+        `).join("") || '<tr><td colspan="5" class="empty-state">No files reported by this device yet.</td></tr>';
+    }
+
     async function refreshUi() {
         try {
             const jobsUrl = (() => {
@@ -223,16 +237,24 @@
                 return `/jobs?${params.toString()}`;
             })();
 
-            const [devices, jobs, activity] = await Promise.all([
+            const requests = [
                 fetchJson("/devices"),
                 fetchJson(jobsUrl),
                 fetchJson(page === "dashboard" ? "/activity?limit=10" : "/activity?limit=100"),
-            ]);
+            ];
+            if (page === "files_device" && currentDeviceName) {
+                requests.push(fetchJson(`/files/device/${encodeURIComponent(currentDeviceName)}`));
+            }
+
+            const [devices, jobs, activity, deviceFiles] = await Promise.all(requests);
 
             renderDashboard(devices, jobs, activity);
             renderDevices(devices);
             renderJobs(jobs);
             renderActivity(activity);
+            if (deviceFiles) {
+                renderDeviceFiles(deviceFiles);
+            }
         } catch (error) {
             logLine(`Refresh failed: ${error.message}`, "error");
         }

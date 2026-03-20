@@ -94,6 +94,7 @@ def init_db() -> None:
                 file_name TEXT NOT NULL,
                 file_size INTEGER,
                 modified_at TEXT,
+                is_dir INTEGER NOT NULL DEFAULT 0,
                 synced_at TEXT NOT NULL
             )
             """
@@ -139,6 +140,7 @@ def init_db() -> None:
         ensure_column(connection, "jobs", "progress INTEGER NOT NULL DEFAULT 0")
         ensure_column(connection, "jobs", "source TEXT NOT NULL DEFAULT 'user'")
         ensure_column(connection, "jobs", "note TEXT")
+        ensure_column(connection, "device_files", "is_dir INTEGER NOT NULL DEFAULT 0")
 
         connection.execute(
             """

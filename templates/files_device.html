@@ -41,6 +41,7 @@
         <table>
             <thead>
                 <tr>
+                    <th>Type</th>
                     <th>Name</th>
                     <th>Size</th>
                     <th>Modified</th>
@@ -50,13 +51,14 @@
             <tbody id="device-files-table-body">
                 {% for item in device_files %}
                 <tr>
+                    <td><span class="badge {% if item.is_dir %}badge-pending{% else %}badge-neutral{% endif %}">{{ 'DIR' if item.is_dir else 'FILE' }}</span></td>
                     <td>{{ item.file_name }}</td>
-                    <td>{{ item.file_size if item.file_size is not none else '-' }}</td>
+                    <td>{% if item.is_dir %}-{% else %}{{ item.file_size if item.file_size is not none else '-' }}{% endif %}</td>
                     <td>{{ item.modified_at or '-' }}</td>
                     <td>{{ item.synced_at }}</td>
                 </tr>
                 {% else %}
-                <tr><td colspan="4" class="empty-state">No files reported by this device yet.</td></tr>
+                <tr><td colspan="5" class="empty-state">No files reported by this device yet.</td></tr>
                 {% endfor %}
             </tbody>
         </table>

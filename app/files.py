@@ -91,10 +91,10 @@ def list_device_files(device_name: str) -> list[DeviceFileInfo]:
 
         rows = connection.execute(
             """
-            SELECT device_name, file_name, file_size, modified_at, synced_at
+            SELECT device_name, file_name, file_size, modified_at, is_dir, synced_at
             FROM device_files
             WHERE device_name = ?
-            ORDER BY file_name ASC
+            ORDER BY is_dir DESC, file_name ASC
             """,
             (device_name,),
         ).fetchall()
@@ -105,6 +105,7 @@ def list_device_files(device_name: str) -> list[DeviceFileInfo]:
             file_name=row["file_name"],
             file_size=row["file_size"],
             modified_at=row["modified_at"],
+            is_dir=bool(row["is_dir"]),
             synced_at=row["synced_at"],
         )
         for row in rows

@@ -330,7 +330,8 @@ def device_poll(payload: DevicePollRequest) -> DevicePollResponse:
 
 @router.post("/device/files", response_model=DeviceFilesResponse)
 def device_files(payload: DeviceFilesRequest) -> DeviceFilesResponse:
-    request_summary = make_summary(files_received=len(payload.files))
+    directories_count = sum(1 for item in payload.files if item.is_dir)
+    request_summary = make_summary(files_received=len(payload.files), directories=directories_count)
 
     with get_connection() as connection:
         if not is_device_allowed(connection, payload.device_name):
@@ -349,10 +350,10 @@ def device_files(payload: DeviceFilesRequest) -> DeviceFilesResponse:
         for item in payload.files:
             connection.execute(
                 """
-                INSERT INTO device_files (device_name, file_name, file_size, modified_at, synced_at)
-                VALUES (?, ?, ?, ?, ?)
+                INSERT INTO device_files (device_name, file_name, file_size, modified_at, is_dir, synced_at)
+                VALUES (?, ?, ?, ?, ?, ?)
                 """,
-                (payload.device_name, item.file_name, item.file_size, item.modified_at, synced_at),
+                (payload.device_name, item.file_name, item.file_size, item.modified_at, 1 if item.is_dir else 0, synced_at),
             )
 
         log_activity(
@@ -363,7 +364,7 @@ def device_files(payload: DeviceFilesRequest) -> DeviceFilesResponse:
             status="ok",
             device_name=payload.device_name,
             request_summary=request_summary,
-            response_summary=make_summary(files_received=len(payload.files)),
+            response_summary=make_summary(files_received=len(payload.files), directories=directories_count),
         )
         connection.commit()
 
