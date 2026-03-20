@@ -1,0 +1,78 @@
+{% extends "base.html" %}
+
+{% block content %}
+<section class="hero-card">
+    <div>
+        <div class="eyebrow">WiMill operations</div>
+        <h1>Dashboard</h1>
+        <p class="lead">Current device state, queue health and the most recent backend activity in one place.</p>
+    </div>
+</section>
+
+<section class="stats-grid" id="dashboard-device-stats">
+    <article class="stat-card">
+        <div class="stat-label">Devices Total</div>
+        <div class="stat-value" data-stat="devices_total">{{ stats.devices_total }}</div>
+    </article>
+    <article class="stat-card ok">
+        <div class="stat-label">Online</div>
+        <div class="stat-value" data-stat="devices_online">{{ stats.devices_online }}</div>
+    </article>
+    <article class="stat-card danger">
+        <div class="stat-label">Offline</div>
+        <div class="stat-value" data-stat="devices_offline">{{ stats.devices_offline }}</div>
+    </article>
+</section>
+
+<section class="stats-grid compact" id="dashboard-job-stats">
+    <article class="stat-card pending">
+        <div class="stat-label">Pending</div>
+        <div class="stat-value" data-stat="jobs_pending">{{ stats.jobs_pending }}</div>
+    </article>
+    <article class="stat-card running">
+        <div class="stat-label">Running</div>
+        <div class="stat-value" data-stat="jobs_running">{{ stats.jobs_running }}</div>
+    </article>
+    <article class="stat-card ok">
+        <div class="stat-label">Done</div>
+        <div class="stat-value" data-stat="jobs_done">{{ stats.jobs_done }}</div>
+    </article>
+    <article class="stat-card danger">
+        <div class="stat-label">Error</div>
+        <div class="stat-value" data-stat="jobs_error">{{ stats.jobs_error }}</div>
+    </article>
+</section>
+
+<section class="panel">
+    <div class="section-heading">
+        <h2>Recent Activity</h2>
+        <span class="helper-text">Latest 10 backend events</span>
+    </div>
+    <div class="table-wrap">
+        <table>
+            <thead>
+                <tr>
+                    <th>Time</th>
+                    <th>Device</th>
+                    <th>Event</th>
+                    <th>Status</th>
+                    <th>Details</th>
+                </tr>
+            </thead>
+            <tbody id="dashboard-activity-body">
+                {% for entry in recent_activity %}
+                <tr>
+                    <td>{{ entry.timestamp }}</td>
+                    <td>{{ entry.device_name or '-' }}</td>
+                    <td>{{ entry.event_type }}</td>
+                    <td><span class="badge badge-{{ entry.status }}">{{ entry.status }}</span></td>
+                    <td>{{ entry.details or entry.response_summary or '-' }}</td>
+                </tr>
+                {% else %}
+                <tr><td colspan="5" class="empty-state">No activity yet.</td></tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+</section>
+{% endblock %}

@@ -1,0 +1,46 @@
+{% extends "base.html" %}
+
+{% block content %}
+<section class="hero-card">
+    <div>
+        <div class="eyebrow">Audit trail</div>
+        <h1>Activity</h1>
+        <p class="lead">Latest 100 events across devices, server internals and UI actions.</p>
+    </div>
+</section>
+
+<section class="panel">
+    <div class="section-heading">
+        <h2>Recent Events</h2>
+        <span class="helper-text">Auto-refresh every 5 seconds</span>
+    </div>
+    <div class="table-wrap">
+        <table>
+            <thead>
+                <tr>
+                    <th>Time</th>
+                    <th>Device</th>
+                    <th>Endpoint</th>
+                    <th>Event</th>
+                    <th>Status</th>
+                    <th>Message</th>
+                </tr>
+            </thead>
+            <tbody id="activity-table-body">
+                {% for entry in activity %}
+                <tr>
+                    <td>{{ entry.timestamp }}</td>
+                    <td>{{ entry.device_name or '-' }}</td>
+                    <td>{{ entry.endpoint }}</td>
+                    <td>{{ entry.event_type }}</td>
+                    <td><span class="badge badge-{{ entry.status }}">{{ entry.status }}</span></td>
+                    <td>{{ entry.details or entry.response_summary or entry.request_summary or '-' }}</td>
+                </tr>
+                {% else %}
+                <tr><td colspan="6" class="empty-state">No activity yet.</td></tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+</section>
+{% endblock %}

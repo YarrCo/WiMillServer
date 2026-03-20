@@ -1,0 +1,63 @@
+{% extends "base.html" %}
+
+{% block content %}
+<section class="hero-card split">
+    <div>
+        <div class="eyebrow">Storage</div>
+        <h1>Server Files</h1>
+        <p class="lead">Upload, download, delete and dispatch files to a selected device.</p>
+    </div>
+    <form method="post" action="/ui/files/server/upload" enctype="multipart/form-data" class="inline-form" data-log-label="Upload file to server">
+        <input type="file" name="file" required>
+        <button type="submit" class="button button-ok">Upload</button>
+    </form>
+</section>
+
+<section class="panel">
+    <div class="section-heading">
+        <h2>Uploaded Files</h2>
+        <span class="helper-text">Stored in <code>storage/uploads</code></span>
+    </div>
+    <div class="table-wrap">
+        <table>
+            <thead>
+                <tr>
+                    <th>Name</th>
+                    <th>Size</th>
+                    <th>Modified</th>
+                    <th>Actions</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for item in server_files %}
+                <tr>
+                    <td>{{ item.file_name }}</td>
+                    <td>{{ item.file_size }}</td>
+                    <td>{{ item.modified_at }}</td>
+                    <td>
+                        <div class="button-row wrap">
+                            <a class="button button-muted" href="/files/server/download/{{ item.file_name }}">Download</a>
+                            <form method="post" action="/ui/files/server/delete/{{ item.file_name }}" data-log-label="Delete server file {{ item.file_name }}">
+                                <button type="submit" class="button button-danger">Delete</button>
+                            </form>
+                            <form method="post" action="/ui/files/server/send" class="send-form" data-log-label="Send {{ item.file_name }} to device">
+                                <input type="hidden" name="file_name" value="{{ item.file_name }}">
+                                <select name="device_name" required>
+                                    <option value="">Select device</option>
+                                    {% for device in devices %}
+                                    <option value="{{ device.device_name }}">{{ device.device_name }}</option>
+                                    {% endfor %}
+                                </select>
+                                <button type="submit" class="button button-pending">Send to Device</button>
+                            </form>
+                        </div>
+                    </td>
+                </tr>
+                {% else %}
+                <tr><td colspan="4" class="empty-state">No files on the server yet.</td></tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+</section>
+{% endblock %}

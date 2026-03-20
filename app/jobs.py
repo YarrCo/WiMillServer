@@ -1,4 +1,4 @@
-from __future__ import annotations
+﻿from __future__ import annotations
 
 from pathlib import Path
 
@@ -12,6 +12,19 @@ from app.models import CreateJobRequest, JobCreateResponse, JobDoneRequest, JobD
 
 router = APIRouter()
 
+LEGACY_JOB_TYPE_MAP = {
+    "download": "download_file",
+    "upload": "upload_file",
+}
+FINISHED_STATUSES = {"done", "error"}
+ACTIVE_STATUSES = {"pending", "running"}
+
+
+def normalize_job_type(job_type: str | None) -> str:
+    if not job_type:
+        return "download_file"
+    return LEGACY_JOB_TYPE_MAP.get(job_type, job_type)
+
 
 def safe_file_name(file_name: str | None) -> str:
     if file_name is None:
@@ -19,12 +32,38 @@ def safe_file_name(file_name: str | None) -> str:
     return Path(file_name).name.strip()
 
 
+def save_upload_content(
+    *,
+    file_name: str,
+    content: bytes,
+    endpoint: str = "/upload",
+    direction: str = "user_to_server",
+) -> str:
+    safe_name = safe_file_name(file_name)
+    if not safe_name:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="file_name is required")
+
+    destination = UPLOADS_DIR / safe_name
+    destination.write_bytes(content)
+
+    with get_connection() as connection:
+        log_activity(
+            connection,
+            direction=direction,
+            endpoint=endpoint,
+            event_type="file_uploaded",
+            status="ok",
+            request_summary=make_summary(file_name=safe_name, bytes=len(content)),
+            response_summary=make_summary(file_name=safe_name),
+        )
+        connection.commit()
+
+    return safe_name
+
+
 def ensure_user_device_exists(connection, device_name: str) -> None:
     if not is_device_allowed(connection, device_name):
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="Allowed device not found",
-        )
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Allowed device not found")
 
 
 def promote_next_job(connection, device_name: str) -> None:
@@ -51,6 +90,67 @@ def promote_next_job(connection, device_name: str) -> None:
         "UPDATE jobs SET status = 'pending', updated_at = ? WHERE id = ?",
         (utc_now(), queued_job["id"]),
     )
+
+
+def finish_job(job_id: int, *, endpoint: str = "/ui/jobs/finish", message: str = "finished from ui") -> dict[str, object]:
+    with get_connection() as connection:
+        row = connection.execute(
+            "SELECT id, device_name, job_type, file_name, status FROM jobs WHERE id = ? LIMIT 1",
+            (job_id,),
+        ).fetchone()
+        if row is None:
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Job not found")
+
+        previous_status = row["status"]
+        if previous_status not in FINISHED_STATUSES:
+            connection.execute(
+                "UPDATE jobs SET status = 'done', updated_at = ?, error_message = ? WHERE id = ?",
+                (utc_now(), message, job_id),
+            )
+            device_name = row["device_name"]
+            if device_name and previous_status in ACTIVE_STATUSES:
+                promote_next_job(connection, device_name)
+            log_activity(
+                connection,
+                direction="user_to_server",
+                endpoint=endpoint,
+                event_type="job_finished_manually",
+                status="ok",
+                device_name=device_name,
+                request_summary=make_summary(job_id=job_id, previous_status=previous_status),
+                response_summary=make_summary(job_id=job_id, status="done"),
+                details=message,
+            )
+            connection.commit()
+            previous_status = "done"
+
+        return {
+            "id": row["id"],
+            "device_name": row["device_name"],
+            "job_type": normalize_job_type(row["job_type"]),
+            "file_name": row["file_name"],
+            "status": previous_status,
+        }
+
+
+def clear_finished_jobs(*, endpoint: str = "/ui/jobs/clear-finished") -> int:
+    with get_connection() as connection:
+        count = connection.execute(
+            "SELECT COUNT(*) AS total FROM jobs WHERE status IN ('done', 'error')"
+        ).fetchone()["total"]
+        if count:
+            connection.execute("DELETE FROM jobs WHERE status IN ('done', 'error')")
+            log_activity(
+                connection,
+                direction="user_to_server",
+                endpoint=endpoint,
+                event_type="jobs_cleared",
+                status="ok",
+                request_summary="statuses=done,error",
+                response_summary=make_summary(deleted=count),
+            )
+            connection.commit()
+        return int(count)
 
 
 @router.get("/jobs", response_model=list[JobInfo])
@@ -87,7 +187,7 @@ def list_jobs(
         JobInfo(
             id=row["id"],
             device_name=row["device_name"],
-            job_type=row["job_type"],
+            job_type=normalize_job_type(row["job_type"]),
             file_name=row["file_name"] or None,
             status=row["status"],
             progress=row["progress"],
@@ -106,35 +206,7 @@ async def upload_file(
     request: Request,
     file_name: str = Query(..., description="Target file name, for example test.nc"),
 ) -> UploadResponse:
-    safe_name = safe_file_name(file_name)
-    if not safe_name:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="file_name is required",
-        )
-
-    content = await request.body()
-    if not content:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Request body is empty",
-        )
-
-    destination = UPLOADS_DIR / safe_name
-    destination.write_bytes(content)
-
-    with get_connection() as connection:
-        log_activity(
-            connection,
-            direction="user_to_server",
-            endpoint="/upload",
-            event_type="file_uploaded",
-            status="ok",
-            request_summary=make_summary(file_name=safe_name, bytes=len(content)),
-            response_summary=make_summary(file_name=safe_name),
-        )
-        connection.commit()
-
+    safe_name = save_upload_content(file_name=file_name, content=await request.body())
     return UploadResponse(status="ok", file_name=safe_name)
 
 
@@ -142,15 +214,13 @@ async def upload_file(
 def create_job(payload: CreateJobRequest) -> JobCreateResponse:
     safe_name = safe_file_name(payload.file_name)
     if payload.job_type in {"download_file", "upload_file"} and not safe_name:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="file_name is required for file jobs",
-        )
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="file_name is required for file jobs")
 
     now = utc_now()
     event_type = {
         "attach": "manual_attach_request",
         "detach": "manual_detach_request",
+        "refresh_files": "file_list_refresh_requested",
     }.get(payload.job_type, "job_created")
 
     with get_connection() as connection:
@@ -164,6 +234,7 @@ def create_job(payload: CreateJobRequest) -> JobCreateResponse:
         cursor = connection.execute(
             """
             INSERT INTO jobs (
+                device_id,
                 device_name,
                 job_type,
                 file_name,
@@ -175,9 +246,10 @@ def create_job(payload: CreateJobRequest) -> JobCreateResponse:
                 source,
                 note
             )
-            VALUES (?, ?, ?, ?, ?, ?, NULL, 0, ?, ?)
+            VALUES (?, ?, ?, ?, ?, ?, ?, NULL, 0, ?, ?)
             """,
             (
+                payload.device_name,
                 payload.device_name,
                 payload.job_type,
                 safe_name,
@@ -223,10 +295,7 @@ def job_done(payload: JobDoneRequest) -> JobDoneResponse:
 
     with get_connection() as connection:
         if not is_device_allowed(connection, payload.device_name):
-            raise HTTPException(
-                status_code=status.HTTP_404_NOT_FOUND,
-                detail="Allowed device not found",
-            )
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Allowed device not found")
 
         if safe_name:
             job = connection.execute(

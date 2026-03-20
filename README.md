@@ -1,24 +1,31 @@
-# WiMill Server MVP
+﻿# WiMill Server MVP
 
-Это backend для MVP-сервера WiMill на `FastAPI` и `SQLite`.
+WiMill Server MVP — это локальный сервер на `FastAPI` и `SQLite` для управления устройствами WiMill, файлами, заданиями и журналом активности.
 
-Сервер принимает запросы от устройств и пользователя, хранит состояние устройств, очередь заданий, список файлов на устройстве и журнал активности. Основная идея текущей версии: устройство не регистрируется автоматически, а сначала должно быть добавлено в white list разрешенных устройств.
+Сервер решает две задачи:
+- backend для обмена между устройством и сервером
+- простой встроенный web UI без React/Vue, чтобы можно было управлять системой из браузера
 
 ## Что умеет сервер
 
-Сервер умеет:
+Backend:
+- хранит white list разрешённых устройств
+- принимает только разрешённые устройства
+- принимает `hello`, `poll`, `files`, `action-result` от устройства
+- хранит текущее состояние устройства
+- хранит очередь jobs и историю их выполнения
+- хранит список файлов на сервере и список файлов, которые сообщил device
+- ведёт `activity_log`
+- отдаёт API для UI и для ручной проверки через `/docs`
 
-- хранить список разрешенных устройств
-- принимать только разрешенные устройства
-- принимать `hello` и `poll` от устройства
-- хранить текущее состояние устройства
-- хранить список файлов, который устройство сообщает серверу
-- принимать загрузку файлов на сервер
-- создавать задания для устройства
-- держать очередь заданий `pending/running/queued/done/error`
-- принимать результаты действий устройства
-- вести activity log для анализа запросов и ответов
-- отдавать activity log через API
+Web UI:
+- показывает dashboard по устройствам, jobs и последней активности
+- показывает список устройств и позволяет создать `attach`, `detach`, `refresh_files`
+- показывает очередь jobs с фильтрами
+- позволяет загружать файл на сервер, скачивать, удалять и отправлять на устройство
+- показывает последние события activity log
+- делает автообновление страниц каждые 5 секунд через обычный JS polling
+- пишет действия UI и ответы сервера в блок `Live Log`
 
 ## Стек
 
@@ -27,6 +34,8 @@
 - `Uvicorn`
 - `SQLite`
 - `Pydantic`
+- `Jinja2`
+- `python-multipart`
 
 ## Структура проекта
 
@@ -40,7 +49,19 @@ WiMillServer/
 │  ├─ jobs.py
 │  ├─ activity.py
 │  ├─ allowed_devices.py
-│  └─ files.py
+│  ├─ files.py
+│  └─ ui.py
+├─ templates/
+│  ├─ base.html
+│  ├─ dashboard.html
+│  ├─ devices.html
+│  ├─ jobs.html
+│  ├─ files_server.html
+│  ├─ files_device.html
+│  └─ activity.html
+├─ static/
+│  ├─ style.css
+│  └─ app.js
 ├─ storage/
 │  ├─ uploads/
 │  └─ devices/
@@ -50,15 +71,17 @@ WiMillServer/
 ```
 
 Назначение файлов:
-
-- `app/main.py` - создание FastAPI-приложения и подключение роутов.
-- `app/database.py` - инициализация SQLite, создание таблиц и мягкая миграция старой схемы.
-- `app/models.py` - Pydantic-модели запросов и ответов.
-- `app/devices.py` - `hello`, `poll`, загрузка списка файлов устройством, `action-result`, расширенный список устройств.
-- `app/jobs.py` - загрузка файлов на сервер, создание jobs, завершение jobs.
-- `app/activity.py` - helper для activity log и endpoint `/activity`.
-- `app/allowed_devices.py` - white list устройств.
-- `app/files.py` - список файлов на сервере и файлов, которые сообщил device.
+- `app/main.py` — создание приложения, подключение API-роутов, UI-роутов и static files
+- `app/database.py` — работа с SQLite, создание таблиц, storage-папок и мягкая миграция
+- `app/models.py` — Pydantic-модели запросов и ответов
+- `app/devices.py` — `device/hello`, `device/poll`, `device/files`, `device/action-result`, `GET /devices`
+- `app/jobs.py` — создание jobs, загрузка файлов в backend, завершение jobs, `GET /jobs`
+- `app/activity.py` — activity log и `GET /activity`
+- `app/allowed_devices.py` — управление white list устройств
+- `app/files.py` — файлы на сервере и файлы устройства
+- `app/ui.py` — HTML-страницы и формы web UI
+- `templates/` — Jinja2-шаблоны интерфейса
+- `static/` — CSS и JS для интерфейса
 
 ## Установка зависимостей
 
@@ -67,10 +90,9 @@ pip install -r requirements.txt
 ```
 
 Что делает команда:
-
-- `pip` - менеджер пакетов Python
-- `install` - установить зависимости
-- `-r requirements.txt` - взять список пакетов из файла `requirements.txt`
+- `pip` — менеджер пакетов Python
+- `install` — установить зависимости
+- `-r requirements.txt` — взять список пакетов из файла `requirements.txt`
 
 ## Запуск сервера
 
@@ -80,135 +102,107 @@ pip install -r requirements.txt
 uvicorn app.main:app --reload
 ```
 
-Что это значит:
+Что означает команда:
+- `uvicorn` — сервер, который запускает FastAPI-приложение
+- `app.main:app` — взять объект `app` из файла `app/main.py`
+- `--reload` — перезапускать сервер при изменении кода
 
-- `uvicorn` - ASGI-сервер для запуска FastAPI
-- `app.main:app` - взять объект `app` из файла `app/main.py`
-- `--reload` - перезапускать сервер при изменении кода
-
-После запуска документация доступна по адресу:
-
-- `http://127.0.0.1:8000/docs`
+После запуска доступны:
+- Swagger UI: `http://127.0.0.1:8000/docs`
+- Web UI: `http://127.0.0.1:8000/`
 
 ### Запуск для локальной сети
 
-Если нужен доступ с другого устройства в LAN:
+Если сервер должен открываться с другого ПК в LAN:
 
 ```bash
 uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload
 ```
 
-Что добавляется:
-
-- `--host 0.0.0.0` - слушать все сетевые интерфейсы, а не только `localhost`
-- `--port 8000` - использовать порт `8000`
-
-Пример адреса в локальной сети:
-
+После этого UI и API будут доступны, например, по адресу:
+- `http://192.168.1.48:8000/`
 - `http://192.168.1.48:8000/docs`
 
 ## White list логика
 
-Главная идея этой версии backend: устройство не может начать работу только потому, что знает IP сервера.
+Сервер не регистрирует устройство автоматически.
 
 Порядок такой:
-
-1. Пользователь вручную добавляет устройство в `allowed_devices`.
-2. Устройство отправляет `POST /device/hello`.
-3. Сервер проверяет, есть ли `device_name` в white list и включено ли устройство.
-4. Если устройство разрешено, сервер обновляет `device_state` и разрешает дальнейшую работу.
-5. Если устройство не разрешено, сервер возвращает отказ и записывает событие в `activity_log`.
+1. Пользователь добавляет устройство в `allowed_devices`
+2. Устройство вызывает `POST /device/hello`
+3. Сервер проверяет, есть ли `device_name` в white list и включено ли устройство
+4. Если устройство разрешено, сервер обновляет `device_state`
+5. Если устройства нет в white list, сервер возвращает отказ и пишет событие в `activity_log`
 
 ## База данных
 
-Сервер использует SQLite. Файл базы по умолчанию:
-
+По умолчанию используется файл:
 - `wimill.db`
 
-При старте сервер автоматически создает таблицы и при необходимости добавляет новые поля в существующую таблицу `jobs`.
+Основные таблицы:
 
-### Таблица `allowed_devices`
-
-Список разрешенных устройств:
-
+### `allowed_devices`
+Список разрешённых устройств:
 - `id`
-- `device_name` - уникальное имя устройства
-- `description` - описание
-- `is_enabled` - устройство включено или выключено
+- `device_name`
+- `description`
+- `is_enabled`
 - `created_at`
 - `updated_at`
 
-### Таблица `device_state`
-
+### `device_state`
 Текущее состояние устройства:
-
-- `id`
 - `device_name`
 - `firmware_version`
 - `last_seen`
 - `is_online`
-- `connection_status` - `online` или `offline`
-- `usb_status` - `attached`, `detached`, `switching`, `unknown`
-- `busy_status` - `idle`, `busy`, `error`, `unknown`
+- `connection_status`
+- `usb_status`
+- `busy_status`
 - `free_space`
 - `total_space`
 - `ip_address`
 - `last_error`
 - `updated_at`
 
-### Таблица `device_files`
-
-Файлы, которые устройство сообщило серверу:
-
-- `id`
+### `device_files`
+Последний список файлов, который прислал device:
 - `device_name`
 - `file_name`
 - `file_size`
 - `modified_at`
 - `synced_at`
 
-### Таблица `jobs`
-
-Очередь заданий для устройства:
-
+### `jobs`
+Очередь заданий:
 - `id`
 - `device_name`
 - `job_type`
 - `file_name`
 - `status`
+- `progress`
 - `created_at`
 - `updated_at`
 - `error_message`
-- `progress`
 - `source`
 - `note`
 
-Возможные `status`:
-
-- `pending`
-- `running`
-- `done`
-- `error`
-- `queued`
-
 Возможные `job_type`:
-
 - `download_file`
 - `upload_file`
 - `attach`
 - `detach`
+- `refresh_files`
 
-Возможные `source`:
+Возможные `status`:
+- `pending`
+- `queued`
+- `running`
+- `done`
+- `error`
 
-- `user`
-- `server`
-- `device`
-
-### Таблица `activity_log`
-
+### `activity_log`
 Живой журнал активности:
-
-- `id`
 - `timestamp`
 - `direction`
 - `device_name`
@@ -221,65 +215,38 @@ uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload
 
 ## Activity log
 
-`activity_log` нужен, чтобы видеть, что реально происходит между устройством, сервером и пользователем.
+`activity_log` нужен для анализа того, что реально происходит между устройством, сервером и пользователем.
 
-Что туда пишется:
-
+Туда пишутся:
 - входящие запросы от устройств
 - ответы сервера устройствам
-- действия пользователя
-- отказы неразрешенным устройствам
+- действия пользователя через API и web UI
 - создание jobs
 - отправка jobs устройству
-- загрузка файла
-- обновление списка файлов устройства
-- результаты действий устройства
+- загрузка и удаление файлов
+- отказы неразрешённым устройствам
+- внутренние события backend
 
-Посмотреть лог можно через:
-
-```text
-GET /activity
-```
-
-По умолчанию возвращаются последние 100 событий. Можно передать `limit`.
-
-Пример:
+Получить лог можно через API:
 
 ```bash
 curl "http://127.0.0.1:8000/activity?limit=20"
 ```
 
-## Очередь заданий
+Или через web UI:
+- `http://127.0.0.1:8000/ui/activity`
 
-В этой версии сервер работает как диспетчер.
-
-Что это значит:
-
-- пользователь создает job
-- сервер кладет job в очередь
-- устройство получает job только через `poll`
-- сервер сам не дергает физическое устройство
-
-Логика очереди:
-
-- если у устройства нет активной job, новая job создается как `pending`
-- если уже есть `pending` или `running`, новая job создается как `queued`
-- когда текущая job завершается, следующая `queued` переводится в `pending`
-- если устройство занято (`busy_status = busy`), новые jobs не теряются и остаются в очереди
-
-## Endpoint'ы
+## API endpoints
 
 ## Allowed devices
 
 ### `GET /allowed-devices`
-
-Возвращает список разрешенных устройств.
+Возвращает список разрешённых устройств.
 
 ### `POST /allowed-devices`
+Добавляет устройство в white list.
 
-Добавляет или обновляет устройство в white list.
-
-Пример запроса:
+Пример:
 
 ```json
 {
@@ -288,37 +255,18 @@ curl "http://127.0.0.1:8000/activity?limit=20"
 }
 ```
 
-Пример `curl`:
-
-```bash
-curl -X POST "http://127.0.0.1:8000/allowed-devices" ^
-  -H "Content-Type: application/json" ^
-  -d "{\"device_name\":\"mill-01\",\"description\":\"RichAuto test stand\"}"
-```
-
 ### `POST /allowed-devices/enable`
-
 Включает устройство.
 
 ### `POST /allowed-devices/disable`
-
 Выключает устройство.
 
-Пример запроса для выключения:
-
-```json
-{
-  "device_name": "mill-01"
-}
-```
-
-## Устройства
+## Devices API
 
 ### `POST /device/hello`
-
 Первый запрос устройства после старта.
 
-Пример запроса:
+Пример:
 
 ```json
 {
@@ -337,7 +285,7 @@ curl -X POST "http://127.0.0.1:8000/allowed-devices" ^
 }
 ```
 
-Ответ для неразрешенного устройства:
+Ответ для неразрешённого устройства:
 
 ```json
 {
@@ -348,10 +296,9 @@ curl -X POST "http://127.0.0.1:8000/allowed-devices" ^
 ```
 
 ### `POST /device/poll`
+Устройство сообщает состояние и получает job.
 
-Устройство сообщает текущее состояние и получает job, если она есть.
-
-Пример запроса:
+Пример:
 
 ```json
 {
@@ -370,12 +317,7 @@ curl -X POST "http://127.0.0.1:8000/allowed-devices" ^
 
 ```json
 {
-  "job": "none",
-  "file_name": null,
-  "status": null,
-  "authorized": null,
-  "reason": null,
-  "note": null
+  "job": "none"
 }
 ```
 
@@ -384,76 +326,20 @@ curl -X POST "http://127.0.0.1:8000/allowed-devices" ^
 ```json
 {
   "job": "download_file",
-  "file_name": "test.nc",
-  "note": null
+  "file_name": "test.nc"
 }
 ```
 
 ### `POST /device/files`
-
-Устройство отправляет серверу актуальный список файлов.
-
-Пример запроса:
-
-```json
-{
-  "device_name": "mill-01",
-  "files": [
-    {
-      "file_name": "part1.nc",
-      "file_size": 123456,
-      "modified_at": "2026-03-20T10:11:00"
-    },
-    {
-      "file_name": "part2.nc",
-      "file_size": 654321,
-      "modified_at": "2026-03-20T10:12:00"
-    }
-  ]
-}
-```
-
-Ответ:
-
-```json
-{
-  "status": "ok",
-  "files_received": 2
-}
-```
+Устройство отправляет актуальный список файлов.
 
 ### `POST /device/action-result`
-
-Устройство сообщает результат действия.
-
-Пример успешного attach:
-
-```json
-{
-  "device_name": "mill-01",
-  "action": "attach",
-  "status": "done",
-  "message": "usb attached successfully"
-}
-```
-
-Пример ошибки при скачивании файла:
-
-```json
-{
-  "device_name": "mill-01",
-  "action": "download_file",
-  "status": "error",
-  "message": "not enough free space"
-}
-```
+Устройство отправляет результат действия, например `attach`, `detach`, `download_file`.
 
 ### `GET /devices`
-
 Возвращает расширенное состояние устройств.
 
 Поля ответа:
-
 - `device_name`
 - `is_online`
 - `last_seen`
@@ -465,17 +351,12 @@ curl -X POST "http://127.0.0.1:8000/allowed-devices" ^
 - `ip_address`
 - `firmware_version`
 
-`is_online` вычисляется backend'ом. Если устройство давно не обращалось, значение будет `false`.
-
-## Файлы
+## Files API
 
 ### `POST /upload`
+Базовый API-загрузчик файла в `storage/uploads`.
 
-Загружает файл на сервер в `storage/uploads`.
-
-Текущая реализация принимает файл как raw body, а имя файла передается в query string.
-
-Пример:
+Сейчас он принимает raw body и имя файла в query string:
 
 ```bash
 curl -X POST "http://127.0.0.1:8000/upload?file_name=test.nc" ^
@@ -483,43 +364,29 @@ curl -X POST "http://127.0.0.1:8000/upload?file_name=test.nc" ^
   --data-binary "@test.nc"
 ```
 
-Ответ:
-
-```json
-{
-  "status": "ok",
-  "file_name": "test.nc"
-}
-```
-
 ### `GET /files/server`
+Список файлов на сервере.
 
-Возвращает список файлов, которые лежат на сервере в `storage/uploads`.
+### `GET /files/server/download/{file_name}`
+Скачать файл с сервера.
+
+### `POST /files/server/delete/{file_name}`
+Удалить файл на сервере.
 
 ### `GET /files/device/{device_name}`
+Список файлов, который сообщил конкретный device.
 
-Возвращает список файлов, о которых серверу сообщил конкретный device.
-
-Пример:
-
-```bash
-curl "http://127.0.0.1:8000/files/device/mill-01"
-```
-
-## Jobs
+## Jobs API
 
 ### `GET /jobs`
+Возвращает список jobs для просмотра очереди через API.
 
-?????????? ?????? jobs ?? ??????? ????? API.
+Поддерживаются query-параметры:
+- `device_name`
+- `status`
+- `limit`
 
-?????????????? query-?????????:
-
-- `device_name` - ?????? ?? ????? ??????????
-- `status` - ?????? ?? ??????? job
-- `limit` - ??????? ??????? ???????
-
-???????????? ????:
-
+Возвращаемые поля:
 - `id`
 - `device_name`
 - `job_type`
@@ -532,7 +399,7 @@ curl "http://127.0.0.1:8000/files/device/mill-01"
 - `source`
 - `note`
 
-???????:
+Примеры:
 
 ```bash
 curl "http://127.0.0.1:8000/jobs"
@@ -542,38 +409,10 @@ curl "http://127.0.0.1:8000/jobs"
 curl "http://127.0.0.1:8000/jobs?device_name=mill-01&status=pending&limit=20"
 ```
 
-?????? ??????:
-
-```json
-[
-  {
-    "id": 1,
-    "device_name": "mill-01",
-    "job_type": "download_file",
-    "file_name": "test.nc",
-    "status": "pending",
-    "progress": 0,
-    "created_at": "2026-03-20T11:00:43.749533+00:00",
-    "updated_at": "2026-03-20T11:00:43.749533+00:00",
-    "error_message": null,
-    "source": "user",
-    "note": null
-  }
-]
-```
-
 ### `POST /jobs`
+Создаёт job для устройства.
 
-Создает job для устройства.
-
-Можно создавать:
-
-- `download_file`
-- `upload_file`
-- `attach`
-- `detach`
-
-Пример job на скачивание файла:
+Пример download job:
 
 ```json
 {
@@ -584,7 +423,7 @@ curl "http://127.0.0.1:8000/jobs?device_name=mill-01&status=pending&limit=20"
 }
 ```
 
-Пример ручной команды attach:
+Пример attach job:
 
 ```json
 {
@@ -596,66 +435,77 @@ curl "http://127.0.0.1:8000/jobs?device_name=mill-01&status=pending&limit=20"
 ```
 
 ### `POST /jobs/done`
-
 Совместимый endpoint для завершения job по устройству и файлу.
 
-Пример:
+## Web UI
 
-```json
-{
-  "device_name": "mill-01",
-  "file_name": "test.nc",
-  "status": "done",
-  "message": "download complete"
-}
-```
+UI встроен прямо в FastAPI-приложение и использует существующие API, а не дублирует backend-логику.
 
-## Как проверить backend вручную через `/docs`
+Страницы:
+- `/` — dashboard
+- `/ui/devices` — список устройств и действия `Attach`, `Detach`, `Refresh Files`
+- `/ui/jobs` — очередь jobs, фильтры и форма создания `download_file`
+- `/ui/files/server` — upload, download, delete и `Send to Device`
+- `/ui/files/device/{device_name}` — список файлов устройства
+- `/ui/activity` — последние события activity log
 
-После запуска откройте:
+Что делает UI:
+- периодически запрашивает `/devices`, `/jobs`, `/activity`
+- обновляет таблицы без тяжёлого frontend-фреймворка
+- пишет все UI-действия и ответы от polling в блок `Live Log`
 
-- `http://127.0.0.1:8000/docs`
+## Ручная проверка через Web UI
 
-Рекомендуемый порядок ручной проверки:
+1. Запустите сервер и откройте `http://127.0.0.1:8000/`
+2. Перейдите в `Devices`
+3. Добавьте устройство, например `mill-01`
+4. Отправьте `POST /device/hello` через `/docs` или с реального устройства
+5. Вернитесь в UI и убедитесь, что устройство появилось как online
+6. Перейдите в `Server Files` и загрузите файл
+7. Нажмите `Send to Device`, выберите `mill-01`
+8. Перейдите в `Jobs` и убедитесь, что появился `download_file`
+9. С устройства вызовите `POST /device/poll` и убедитесь, что job выдана
+10. С устройства вызовите `POST /device/action-result`
+11. Проверьте `Activity` и `Live Log`
 
-1. Вызвать `POST /allowed-devices` и добавить `mill-01`.
-2. Вызвать `POST /device/hello` для `mill-01`.
-3. Вызвать `POST /device/poll` и убедиться, что приходит `job = none`.
-4. Вызвать `POST /upload` и загрузить `test.nc`.
-5. Вызвать `POST /jobs` и создать `download_file`.
-6. Еще раз вызвать `POST /device/poll` и получить job.
-7. Вызвать `POST /device/action-result` и завершить `download_file`.
-8. Вызвать `POST /jobs` и создать `attach` или `detach`.
-9. Вызвать `POST /device/poll` и получить следующую job.
-10. Вызвать `POST /device/files` и отправить список файлов устройства.
-11. Проверить `GET /devices`.
-12. Проверить `GET /files/server`.
-13. Проверить `GET /files/device/mill-01`.
-14. Проверить `GET /activity` и убедиться, что события попали в журнал.
-15. Проверить отказ для неизвестного устройства через `POST /device/hello` с другим именем.
+## Ручная проверка через `/docs`
 
-## Что было проверено локально после доработки
+Рекомендуемый порядок:
+1. `POST /allowed-devices`
+2. `POST /device/hello`
+3. `POST /device/poll`
+4. `POST /upload`
+5. `POST /jobs`
+6. ещё раз `POST /device/poll`
+7. `POST /device/action-result`
+8. `POST /device/files`
+9. `GET /devices`
+10. `GET /jobs`
+11. `GET /files/server`
+12. `GET /files/device/mill-01`
+13. `GET /activity`
+14. `POST /device/hello` с неизвестным устройством, чтобы проверить отказ
 
-Локально был прогнан сценарий на временной базе и временном storage:
+## Что проверено локально после доработки
 
-- добавление разрешенного устройства
-- `device/hello`
-- `device/poll`
-- `upload`
-- создание `download_file`
-- создание `attach` в очередь
-- получение jobs устройством
-- `device/action-result`
-- `device/files`
-- отказ неизвестному устройству
-- чтение `/activity`
-- чтение `/devices`
-- чтение `/files/server` и `/files/device/{device_name}`
+Локально на временной базе и временном storage были проверены:
+- открытие `GET /`
+- открытие `GET /ui/devices`
+- добавление устройства через `POST /ui/devices/add`
+- `POST /device/hello`
+- `POST /device/poll`
+- загрузка файла через `POST /ui/files/server/upload`
+- создание download job через UI
+- создание attach job через UI
+- `GET /jobs` и фильтрация по `device_name`
+- `POST /device/files`
+- открытие `GET /ui/files/device/{device_name}`
+- открытие `GET /ui/activity`
 
 ## Важные замечания
 
-- устройство должно быть добавлено в white list до `hello/poll`
-- jobs не отправляются устройству, если оно сообщает `busy_status = busy`
-- сервер не управляет устройством напрямую, а только ставит задачи в очередь
-- `activity_log` хранит компактные summaries, а не полный бинарный контент
-- для доступа из локальной сети сервер нужно запускать с `--host 0.0.0.0`
+- устройство должно быть добавлено в white list до `hello` и `poll`
+- сервер не управляет железом напрямую, а только ставит задания в очередь
+- если устройство занято, jobs не пропадают, а остаются в `pending` или `queued`
+- `activity_log` хранит короткие summaries, а не большой бинарный контент
+- для доступа из локальной сети запускайте сервер с `--host 0.0.0.0`

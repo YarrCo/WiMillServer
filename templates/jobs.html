@@ -1,0 +1,100 @@
+﻿{% extends "base.html" %}
+
+{% block content %}
+<section class="hero-card split">
+    <div>
+        <div class="eyebrow">Queue control</div>
+        <h1>Jobs</h1>
+        <p class="lead">Inspect the queue, filter it, finish stuck jobs and clear old completed entries.</p>
+    </div>
+    <form method="post" action="/ui/jobs/create-download" class="inline-form" data-log-label="Create download job from UI">
+        <select name="device_name" required>
+            <option value="">Select device</option>
+            {% for device in devices %}
+            <option value="{{ device.device_name }}">{{ device.device_name }}</option>
+            {% endfor %}
+        </select>
+        <select name="file_name" required>
+            <option value="">Select server file</option>
+            {% for item in server_files %}
+            <option value="{{ item.file_name }}">{{ item.file_name }}</option>
+            {% endfor %}
+        </select>
+        <button type="submit" class="button button-ok">Create Download Job</button>
+    </form>
+</section>
+
+<section class="panel panel-tight">
+    <div class="button-row wrap section-actions">
+        <form method="get" action="/ui/jobs" class="filters-form">
+            <select name="device_name">
+                <option value="">All devices</option>
+                {% for device in devices %}
+                <option value="{{ device.device_name }}" {% if selected_device == device.device_name %}selected{% endif %}>{{ device.device_name }}</option>
+                {% endfor %}
+            </select>
+            <select name="status">
+                <option value="">All statuses</option>
+                {% for value in ['pending', 'queued', 'running', 'done', 'error'] %}
+                <option value="{{ value }}" {% if selected_status == value %}selected{% endif %}>{{ value }}</option>
+                {% endfor %}
+            </select>
+            <button type="submit" class="button button-muted">Apply Filter</button>
+        </form>
+        <form method="post" action="/ui/jobs/clear-finished" data-log-label="Clear finished jobs">
+            <button type="submit" class="button button-danger">Clear Done/Error</button>
+        </form>
+    </div>
+</section>
+
+<section class="panel">
+    <div class="section-heading">
+        <h2>Job Queue</h2>
+        <span class="helper-text">Auto-refresh every 5 seconds</span>
+    </div>
+    <div class="table-wrap">
+        <table>
+            <thead>
+                <tr>
+                    <th>ID</th>
+                    <th>Device</th>
+                    <th>Type</th>
+                    <th>File</th>
+                    <th>Status</th>
+                    <th>Progress</th>
+                    <th>Created</th>
+                    <th>Updated</th>
+                    <th>Error</th>
+                    <th>Actions</th>
+                </tr>
+            </thead>
+            <tbody id="jobs-table-body">
+                {% for job in jobs %}
+                <tr>
+                    <td>{{ job.id }}</td>
+                    <td>{{ job.device_name or '-' }}</td>
+                    <td>{{ job.job_type }}</td>
+                    <td>{{ job.file_name or '-' }}</td>
+                    <td><span class="badge badge-{{ job.status }}">{{ job.status }}</span></td>
+                    <td>{{ job.progress }}%</td>
+                    <td>{{ job.created_at }}</td>
+                    <td>{{ job.updated_at or '-' }}</td>
+                    <td>{{ job.error_message or '-' }}</td>
+                    <td>
+                        {% if job.status not in ['done', 'error'] %}
+                        <form method="post" action="/ui/jobs/{{ job.id }}/finish" data-log-label="Finish job {{ job.id }}">
+                            <button type="submit" class="button button-pending">Finish</button>
+                        </form>
+                        {% else %}
+                        <span class="helper-text">-</span>
+                        {% endif %}
+                    </td>
+                </tr>
+                {% else %}
+                <tr><td colspan="10" class="empty-state">No jobs match the current filter.</td></tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+</section>
+{% endblock %}

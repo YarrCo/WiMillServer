@@ -1,0 +1,42 @@
+<!doctype html>
+<html lang="en">
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>{{ title }} | WiMill Server</title>
+    <link rel="stylesheet" href="{{ request.url_for('static', path='style.css') }}">
+    <script defer src="{{ request.url_for('static', path='app.js') }}"></script>
+</head>
+<body data-page="{{ page_name }}" data-device-name="{{ device_name|default('') }}" data-selected-device="{{ selected_device|default('') }}" data-selected-status="{{ selected_status|default('') }}">
+    <div class="page-shell">
+        <header class="topbar">
+            <div>
+                <a class="brand" href="/">WiMill Server</a>
+                <div class="brand-subtitle">MVP control panel</div>
+            </div>
+            <nav class="main-nav">
+                <a href="/" class="{% if page_name == 'dashboard' %}active{% endif %}">Dashboard</a>
+                <a href="/ui/devices" class="{% if page_name == 'devices' %}active{% endif %}">Devices</a>
+                <a href="/ui/jobs" class="{% if page_name == 'jobs' %}active{% endif %}">Jobs</a>
+                <a href="/ui/files/server" class="{% if page_name == 'files_server' %}active{% endif %}">Server Files</a>
+                <a href="/ui/activity" class="{% if page_name == 'activity' %}active{% endif %}">Activity</a>
+            </nav>
+        </header>
+
+        <main class="content-area">
+            {% if message %}
+            <div class="flash flash-{{ message_level }}" id="flash-message">{{ message }}</div>
+            {% endif %}
+            {% block content %}{% endblock %}
+        </main>
+
+        <section class="live-log-panel">
+            <div class="section-heading">
+                <h2>Live Log</h2>
+                <button type="button" class="button button-muted" id="clear-live-log">Clear</button>
+            </div>
+            <div id="live-log" class="live-log"></div>
+        </section>
+    </div>
+</body>
+</html>

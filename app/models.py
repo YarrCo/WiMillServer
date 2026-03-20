@@ -9,7 +9,7 @@ ConnectionStatus = Literal["online", "offline"]
 UsbStatus = Literal["attached", "detached", "switching", "unknown"]
 BusyStatus = Literal["idle", "busy", "error", "unknown"]
 JobStatus = Literal["pending", "running", "done", "error", "queued"]
-JobType = Literal["download_file", "upload_file", "attach", "detach"]
+JobType = Literal["download_file", "upload_file", "attach", "detach", "refresh_files"]
 JobSource = Literal["user", "server", "device"]
 ActionStatus = Literal["done", "error"]
 

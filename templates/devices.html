@@ -1,0 +1,67 @@
+{% extends "base.html" %}
+
+{% block content %}
+<section class="hero-card split">
+    <div>
+        <div class="eyebrow">Fleet management</div>
+        <h1>Devices</h1>
+        <p class="lead">Track current state and send simple dispatcher commands to WiMill devices.</p>
+    </div>
+    <form method="post" action="/ui/devices/add" class="inline-form" data-log-label="Add allowed device">
+        <input type="text" name="device_name" placeholder="mill-01" required>
+        <input type="text" name="description" placeholder="Description (optional)">
+        <button type="submit" class="button button-ok">Add Device</button>
+    </form>
+</section>
+
+<section class="panel">
+    <div class="section-heading">
+        <h2>Allowed Devices</h2>
+        <span class="helper-text">Auto-refresh every 5 seconds</span>
+    </div>
+    <div class="table-wrap">
+        <table>
+            <thead>
+                <tr>
+                    <th>Device</th>
+                    <th>Online</th>
+                    <th>USB</th>
+                    <th>Busy</th>
+                    <th>Free Space</th>
+                    <th>Firmware</th>
+                    <th>Last Seen</th>
+                    <th>Actions</th>
+                </tr>
+            </thead>
+            <tbody id="devices-table-body">
+                {% for device in devices %}
+                <tr>
+                    <td>{{ device.device_name }}</td>
+                    <td><span class="badge badge-{{ 'ok' if device.is_online else 'danger' }}">{{ 'online' if device.is_online else 'offline' }}</span></td>
+                    <td><span class="badge badge-neutral">{{ device.usb_status }}</span></td>
+                    <td><span class="badge badge-{{ 'danger' if device.busy_status == 'busy' else 'ok' if device.busy_status == 'idle' else 'pending' }}">{{ device.busy_status }}</span></td>
+                    <td>{{ device.free_space if device.free_space is not none else '-' }}</td>
+                    <td>{{ device.firmware_version or '-' }}</td>
+                    <td>{{ device.last_seen or '-' }}</td>
+                    <td>
+                        <div class="button-row">
+                            <form method="post" action="/ui/device/{{ device.device_name }}/attach" data-log-label="Attach {{ device.device_name }}">
+                                <button type="submit" class="button button-ok">Attach</button>
+                            </form>
+                            <form method="post" action="/ui/device/{{ device.device_name }}/detach" data-log-label="Detach {{ device.device_name }}">
+                                <button type="submit" class="button button-pending">Detach</button>
+                            </form>
+                            <form method="post" action="/ui/device/{{ device.device_name }}/refresh" data-log-label="Refresh files {{ device.device_name }}">
+                                <button type="submit" class="button button-muted">Refresh Files</button>
+                            </form>
+                        </div>
+                    </td>
+                </tr>
+                {% else %}
+                <tr><td colspan="8" class="empty-state">No allowed devices yet.</td></tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+</section>
+{% endblock %}

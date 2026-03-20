@@ -1,4 +1,4 @@
-from __future__ import annotations
+﻿from __future__ import annotations
 
 import os
 import sqlite3
@@ -147,6 +147,17 @@ def init_db() -> None:
             WHERE (device_name IS NULL OR device_name = '')
               AND device_id IS NOT NULL
               AND device_id != ''
+            """
+        )
+        connection.execute(
+            """
+            UPDATE jobs
+            SET job_type = CASE job_type
+                WHEN 'download' THEN 'download_file'
+                WHEN 'upload' THEN 'upload_file'
+                ELSE job_type
+            END
+            WHERE job_type IN ('download', 'upload')
             """
         )
         connection.execute(
