@@ -19,6 +19,7 @@ LEGACY_JOB_TYPE_MAP = {
 }
 FINISHED_STATUSES = {"done", "error"}
 ACTIVE_STATUSES = {"pending", "running"}
+PRIORITY_JOB_TYPES = {"attach", "detach"}
 
 
 def normalize_job_type(job_type: str | None) -> str:
@@ -76,29 +77,41 @@ def ensure_user_device_exists(connection, device_name: str) -> None:
 
 
 def promote_next_job(connection, device_name: str) -> None:
-    active_job = connection.execute(
-        "SELECT id FROM jobs WHERE device_name = ? AND status IN ('pending', 'running') LIMIT 1",
+    running_job = connection.execute(
+        "SELECT id FROM jobs WHERE device_name = ? AND status = 'running' LIMIT 1",
         (device_name,),
     ).fetchone()
-    if active_job is not None:
+    if running_job is not None:
         return
 
-    queued_job = connection.execute(
+    pending_and_queued = connection.execute(
         """
-        SELECT id FROM jobs
-        WHERE device_name = ? AND status = 'queued'
+        SELECT id, job_type, status
+        FROM jobs
+        WHERE device_name = ? AND status IN ('pending', 'queued')
         ORDER BY created_at ASC, id ASC
-        LIMIT 1
         """,
         (device_name,),
-    ).fetchone()
-    if queued_job is None:
+    ).fetchall()
+    if not pending_and_queued:
         return
 
+    priority_job = next((row for row in pending_and_queued if row["job_type"] in PRIORITY_JOB_TYPES), None)
+    if priority_job is not None:
+        selected_job = priority_job
+    else:
+        selected_job = next((row for row in pending_and_queued if row["status"] == 'pending'), pending_and_queued[0])
+
+    now = utc_now()
     connection.execute(
-        "UPDATE jobs SET status = 'pending', updated_at = ? WHERE id = ?",
-        (utc_now(), queued_job["id"]),
+        "UPDATE jobs SET status = 'queued', updated_at = ? WHERE device_name = ? AND status = 'pending' AND id != ?",
+        (now, device_name, selected_job["id"]),
     )
+    if selected_job["status"] != 'pending':
+        connection.execute(
+            "UPDATE jobs SET status = 'pending', updated_at = ? WHERE id = ?",
+            (now, selected_job["id"]),
+        )
 
 
 def finish_job(job_id: int, *, endpoint: str = "/ui/jobs/finish", message: str = "finished from ui") -> dict[str, object]:
@@ -269,6 +282,11 @@ def create_job(payload: CreateJobRequest) -> JobCreateResponse:
                 payload.note,
             ),
         )
+        promote_next_job(connection, payload.device_name)
+        actual_status = connection.execute(
+            "SELECT status FROM jobs WHERE id = ?",
+            (cursor.lastrowid,),
+        ).fetchone()["status"]
         log_activity(
             connection,
             direction="user_to_server",
@@ -282,7 +300,7 @@ def create_job(payload: CreateJobRequest) -> JobCreateResponse:
                 source=payload.source,
                 note=payload.note,
             ),
-            response_summary=make_summary(job_id=cursor.lastrowid, job_status=job_status),
+            response_summary=make_summary(job_id=cursor.lastrowid, job_status=actual_status),
         )
         connection.commit()
 
@@ -292,7 +310,7 @@ def create_job(payload: CreateJobRequest) -> JobCreateResponse:
         device_name=payload.device_name,
         job_type=payload.job_type,
         file_name=safe_name or None,
-        job_status=job_status,
+        job_status=actual_status,
         source=payload.source,
         note=payload.note,
     )

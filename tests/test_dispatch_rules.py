@@ -96,6 +96,48 @@ class DispatchRulesTests(unittest.TestCase):
         self.assertEqual(job["job_type"], "attach")
         self.assertEqual(row["status"], "running")
 
+    def test_detach_job_is_prioritized_over_blocked_sd_access_job(self) -> None:
+        first_job = create_job(
+            CreateJobRequest(
+                device_name="mill-01",
+                job_type="download_file",
+                file_name="test.nc",
+                source="user",
+            )
+        )
+        second_job = create_job(
+            CreateJobRequest(
+                device_name="mill-01",
+                job_type="detach",
+                source="user",
+            )
+        )
+
+        self.assertEqual(first_job.job_status, "pending")
+        self.assertEqual(second_job.job_status, "pending")
+
+        with database.get_connection() as connection:
+            pre_rows = connection.execute(
+                "SELECT id, job_type, status FROM jobs WHERE device_name = ? ORDER BY id ASC",
+                ("mill-01",),
+            ).fetchall()
+            job = try_dispatch_job(connection, self.poll_payload("attached"))
+            rows = connection.execute(
+                "SELECT id, job_type, status FROM jobs WHERE device_name = ? ORDER BY id ASC",
+                ("mill-01",),
+            ).fetchall()
+
+        self.assertEqual(pre_rows[0]["job_type"], "download_file")
+        self.assertEqual(pre_rows[0]["status"], "queued")
+        self.assertEqual(pre_rows[1]["job_type"], "detach")
+        self.assertEqual(pre_rows[1]["status"], "pending")
+        self.assertIsNotNone(job)
+        self.assertEqual(job["job_type"], "detach")
+        self.assertEqual(rows[0]["job_type"], "download_file")
+        self.assertEqual(rows[0]["status"], "queued")
+        self.assertEqual(rows[1]["job_type"], "detach")
+        self.assertEqual(rows[1]["status"], "running")
+
     def test_running_action_updates_job_progress(self) -> None:
         create_job(
             CreateJobRequest(

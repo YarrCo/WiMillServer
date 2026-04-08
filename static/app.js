@@ -159,6 +159,7 @@
                         <form method="post" action="/ui/device/${encodeURIComponent(device.device_name)}/detach" data-log-label="Detach ${escapeHtml(device.device_name)}">
                             <button type="submit" class="button button-pending">Detach</button>
                         </form>
+                        <a href="/ui/files/device/${encodeURIComponent(device.device_name)}" class="button button-muted">Files</a>
                         <form method="post" action="/ui/device/${encodeURIComponent(device.device_name)}/refresh" data-log-label="Refresh files ${escapeHtml(device.device_name)}">
                             <button type="submit" class="button button-muted">Refresh Files</button>
                         </form>
