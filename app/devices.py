@@ -453,25 +453,41 @@ def list_devices() -> list[DeviceInfo]:
             """
         ).fetchall()
 
-    devices: list[DeviceInfo] = []
-    for row in rows:
-        last_seen = row["last_seen"]
-        is_online = False
-        if last_seen:
-            seen_at = datetime.fromisoformat(last_seen)
-            is_online = (now - seen_at).total_seconds() <= ONLINE_TIMEOUT_SECONDS
-        devices.append(
-            DeviceInfo(
-                device_name=row["device_name"],
-                is_online=is_online,
-                last_seen=last_seen,
-                connection_status=row["connection_status"] or "offline",
-                usb_status=row["usb_status"] or "unknown",
-                busy_status=row["busy_status"] or "unknown",
-                free_space=row["free_space"],
-                total_space=row["total_space"],
-                ip_address=row["ip_address"],
-                firmware_version=row["firmware_version"],
+        devices: list[DeviceInfo] = []
+        stale_device_names: list[str] = []
+        for row in rows:
+            last_seen = row["last_seen"]
+            is_online = False
+            if last_seen:
+                seen_at = datetime.fromisoformat(last_seen)
+                is_online = (now - seen_at).total_seconds() <= ONLINE_TIMEOUT_SECONDS
+
+            effective_connection_status = row["connection_status"] or "offline"
+            if not is_online:
+                effective_connection_status = "offline"
+                if row["connection_status"] and row["connection_status"] != "offline":
+                    stale_device_names.append(row["device_name"])
+
+            devices.append(
+                DeviceInfo(
+                    device_name=row["device_name"],
+                    is_online=is_online,
+                    last_seen=last_seen,
+                    connection_status=effective_connection_status,
+                    usb_status=row["usb_status"] or "unknown",
+                    busy_status=row["busy_status"] or "unknown",
+                    free_space=row["free_space"],
+                    total_space=row["total_space"],
+                    ip_address=row["ip_address"],
+                    firmware_version=row["firmware_version"],
+                )
             )
-        )
+
+        if stale_device_names:
+            connection.executemany(
+                "UPDATE device_state SET is_online = 0, connection_status = 'offline', updated_at = ? WHERE device_name = ?",
+                [(utc_now(), device_name) for device_name in stale_device_names],
+            )
+            connection.commit()
+
     return devices
