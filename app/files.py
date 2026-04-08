@@ -8,7 +8,7 @@ from fastapi.responses import FileResponse
 
 from app.activity import log_activity, make_summary
 from app.allowed_devices import get_allowed_device_row
-from app.database import UPLOADS_DIR, get_connection
+from app.database import DEVICES_DIR, UPLOADS_DIR, get_connection
 from app.models import DeviceFileInfo, ServerFileInfo
 
 
@@ -27,6 +27,29 @@ def server_file_path(file_name: str) -> Path:
     path = UPLOADS_DIR / safe_name
     if not path.exists() or not path.is_file():
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Server file not found")
+    return path
+
+
+def safe_device_name(device_name: str) -> str:
+    safe_name = Path(device_name).name.strip()
+    if not safe_name:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="device_name is required")
+    return safe_name
+
+
+def safe_device_relative_path(file_name: str) -> Path:
+    normalized = file_name.replace(chr(92), "/").strip().lstrip("/")
+    parts = [part for part in normalized.split("/") if part not in {"", ".", ".."}]
+    if not parts:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="file_name is required")
+    return Path(*parts)
+
+
+def device_upload_path(device_name: str, file_name: str) -> Path:
+    device_dir = DEVICES_DIR / safe_device_name(device_name)
+    relative_path = safe_device_relative_path(file_name)
+    path = device_dir / relative_path
+    path.parent.mkdir(parents=True, exist_ok=True)
     return path
 
 

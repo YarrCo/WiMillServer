@@ -11,7 +11,7 @@ BusyStatus = Literal["idle", "busy", "error", "unknown"]
 JobStatus = Literal["pending", "running", "done", "error", "queued"]
 JobType = Literal["download_file", "upload_file", "attach", "detach", "refresh_files"]
 JobSource = Literal["user", "server", "device"]
-ActionStatus = Literal["done", "error"]
+ActionStatus = Literal["running", "done", "error"]
 
 
 class WiMillBaseModel(BaseModel):
@@ -89,6 +89,7 @@ class DeviceActionResultRequest(WiMillBaseModel):
     action: JobType
     status: ActionStatus
     message: str | None = None
+    progress: int | None = Field(default=None, ge=0, le=100)
 
 
 class DeviceActionResultResponse(WiMillBaseModel):
@@ -96,6 +97,15 @@ class DeviceActionResultResponse(WiMillBaseModel):
     action: JobType
     device_name: str
     message: str | None = None
+    progress: int | None = None
+
+
+class DeviceUploadResponse(WiMillBaseModel):
+    status: str
+    device_name: str
+    file_name: str
+    stored_path: str
+    bytes_received: int
 
 
 class UploadResponse(WiMillBaseModel):

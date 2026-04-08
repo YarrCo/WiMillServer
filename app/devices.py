@@ -2,11 +2,12 @@ from __future__ import annotations
 
 from datetime import UTC, datetime
 
-from fastapi import APIRouter
+from fastapi import APIRouter, Query, Request
 
 from app.activity import log_activity, make_summary
 from app.allowed_devices import is_device_allowed
 from app.database import ONLINE_TIMEOUT_SECONDS, get_connection, utc_now
+from app.files import device_upload_path
 from app.models import (
     DeviceActionResultRequest,
     DeviceActionResultResponse,
@@ -15,6 +16,7 @@ from app.models import (
     DeviceHelloRequest,
     DeviceHelloResponse,
     DeviceInfo,
+    DeviceUploadResponse,
     DevicePollRequest,
     DevicePollResponse,
 )
@@ -198,10 +200,17 @@ def try_dispatch_job(connection, payload: DevicePollRequest):
     return next_job
 
 
-def update_job_from_action(connection, device_name: str, action: str, status_value: str, message: str | None) -> None:
+def update_job_from_action(
+    connection,
+    device_name: str,
+    action: str,
+    status_value: str,
+    message: str | None,
+    progress: int | None = None,
+) -> None:
     row = connection.execute(
         """
-        SELECT id
+        SELECT id, progress
         FROM jobs
         WHERE device_name = ? AND job_type = ? AND status IN ('running', 'pending')
         ORDER BY updated_at DESC, created_at DESC, id DESC
@@ -212,9 +221,39 @@ def update_job_from_action(connection, device_name: str, action: str, status_val
     if row is None:
         return
 
+    next_progress = row["progress"]
+    if progress is not None:
+        next_progress = progress
+    elif status_value == "done":
+        next_progress = 100
+
+    next_status = "running" if status_value == "running" else status_value
+    next_error_message = message if status_value == "error" else None
     connection.execute(
-        "UPDATE jobs SET status = ?, updated_at = ?, error_message = ? WHERE id = ?",
-        (status_value, utc_now(), message, row["id"]),
+        "UPDATE jobs SET status = ?, progress = ?, updated_at = ?, error_message = ? WHERE id = ?",
+        (next_status, next_progress, utc_now(), next_error_message, row["id"]),
+    )
+    if status_value in {"done", "error"}:
+        promote_next_job(connection, device_name)
+
+
+def mark_upload_job_completed(connection, device_name: str, file_name: str) -> None:
+    row = connection.execute(
+        """
+        SELECT id
+        FROM jobs
+        WHERE device_name = ? AND job_type = 'upload_file' AND file_name = ? AND status IN ('running', 'pending')
+        ORDER BY updated_at DESC, created_at DESC, id DESC
+        LIMIT 1
+        """,
+        (device_name, file_name),
+    ).fetchone()
+    if row is None:
+        return
+
+    connection.execute(
+        "UPDATE jobs SET status = 'done', progress = 100, updated_at = ?, error_message = NULL WHERE id = ?",
+        (utc_now(), row["id"]),
     )
     promote_next_job(connection, device_name)
 
@@ -379,7 +418,7 @@ def device_files(payload: DeviceFilesRequest) -> DeviceFilesResponse:
 
 @router.post("/device/action-result", response_model=DeviceActionResultResponse)
 def device_action_result(payload: DeviceActionResultRequest) -> DeviceActionResultResponse:
-    request_summary = make_summary(action=payload.action, status=payload.status, message=payload.message)
+    request_summary = make_summary(action=payload.action, status=payload.status, progress=payload.progress, message=payload.message)
 
     with get_connection() as connection:
         if not is_device_allowed(connection, payload.device_name):
@@ -400,7 +439,12 @@ def device_action_result(payload: DeviceActionResultRequest) -> DeviceActionResu
 
         last_error = payload.message if payload.status == "error" else ""
         usb_status = None
-        busy_status = "idle" if payload.status == "done" else "error"
+        if payload.status == "running":
+            busy_status = "busy"
+        elif payload.status == "done":
+            busy_status = "idle"
+        else:
+            busy_status = "error"
         if payload.action == "attach" and payload.status == "done":
             usb_status = "attached"
         elif payload.action == "detach" and payload.status == "done":
@@ -415,16 +459,16 @@ def device_action_result(payload: DeviceActionResultRequest) -> DeviceActionResu
             usb_status=usb_status,
             last_error=last_error,
         )
-        update_job_from_action(connection, payload.device_name, payload.action, payload.status, payload.message)
+        update_job_from_action(connection, payload.device_name, payload.action, payload.status, payload.message, payload.progress)
         log_activity(
             connection,
             direction="device_to_server",
             endpoint="/device/action-result",
-            event_type="job_done" if payload.status == "done" else "error",
+            event_type="job_progress" if payload.status == "running" else "job_done" if payload.status == "done" else "error",
             status=payload.status,
             device_name=payload.device_name,
             request_summary=request_summary,
-            response_summary=make_summary(action=payload.action, status=payload.status),
+            response_summary=make_summary(action=payload.action, status=payload.status, progress=payload.progress),
             details=payload.message,
         )
         connection.commit()
@@ -434,6 +478,58 @@ def device_action_result(payload: DeviceActionResultRequest) -> DeviceActionResu
         action=payload.action,
         device_name=payload.device_name,
         message=payload.message,
+        progress=payload.progress,
+    )
+
+
+@router.post("/device/upload", response_model=DeviceUploadResponse)
+async def device_upload_file(
+    request: Request,
+    device_name: str = Query(...),
+    file_name: str = Query(...),
+) -> DeviceUploadResponse:
+    content = await request.body()
+
+    with get_connection() as connection:
+        if not is_device_allowed(connection, device_name):
+            response = device_rejected_response(
+                connection,
+                "/device/upload",
+                device_name,
+                make_summary(file_name=file_name, bytes=len(content)),
+                "device_not_allowed",
+            )
+            connection.commit()
+            return DeviceUploadResponse(
+                status=response["status"],
+                device_name=device_name,
+                file_name=file_name,
+                stored_path="",
+                bytes_received=0,
+            )
+
+        destination = device_upload_path(device_name, file_name)
+        destination.write_bytes(content)
+        stored_path = str(destination.relative_to(destination.parents[2])).replace(chr(92), "/")
+        mark_upload_job_completed(connection, device_name, file_name)
+        log_activity(
+            connection,
+            direction="device_to_server",
+            endpoint="/device/upload",
+            event_type="device_file_uploaded_to_server",
+            status="ok",
+            device_name=device_name,
+            request_summary=make_summary(file_name=file_name, bytes=len(content)),
+            response_summary=make_summary(stored_path=stored_path),
+        )
+        connection.commit()
+
+    return DeviceUploadResponse(
+        status="ok",
+        device_name=device_name,
+        file_name=file_name,
+        stored_path=stored_path,
+        bytes_received=len(content),
     )
 
 

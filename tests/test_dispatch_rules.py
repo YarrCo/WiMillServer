@@ -7,7 +7,7 @@ from pathlib import Path
 
 from app.allowed_devices import create_allowed_device
 from app.database import init_db
-from app.devices import try_dispatch_job
+from app.devices import mark_upload_job_completed, try_dispatch_job, update_job_from_action
 from app.jobs import create_job
 from app.models import AllowedDeviceCreate, CreateJobRequest, DevicePollRequest
 import app.database as database
@@ -95,6 +95,50 @@ class DispatchRulesTests(unittest.TestCase):
         self.assertIsNotNone(job)
         self.assertEqual(job["job_type"], "attach")
         self.assertEqual(row["status"], "running")
+
+    def test_running_action_updates_job_progress(self) -> None:
+        create_job(
+            CreateJobRequest(
+                device_name="mill-01",
+                job_type="upload_file",
+                file_name="logs/run.gcode",
+                source="user",
+            )
+        )
+
+        with database.get_connection() as connection:
+            dispatched = try_dispatch_job(connection, self.poll_payload("detached"))
+            self.assertIsNotNone(dispatched)
+            update_job_from_action(connection, "mill-01", "upload_file", "running", "copying", 55)
+            row = connection.execute(
+                "SELECT status, progress FROM jobs WHERE device_name = ? ORDER BY id ASC LIMIT 1",
+                ("mill-01",),
+            ).fetchone()
+
+        self.assertEqual(row["status"], "running")
+        self.assertEqual(row["progress"], 55)
+
+    def test_mark_upload_job_completed_sets_done_and_100_percent(self) -> None:
+        create_job(
+            CreateJobRequest(
+                device_name="mill-01",
+                job_type="upload_file",
+                file_name="logs/run.gcode",
+                source="user",
+            )
+        )
+
+        with database.get_connection() as connection:
+            dispatched = try_dispatch_job(connection, self.poll_payload("detached"))
+            self.assertIsNotNone(dispatched)
+            mark_upload_job_completed(connection, "mill-01", "logs/run.gcode")
+            row = connection.execute(
+                "SELECT status, progress FROM jobs WHERE device_name = ? ORDER BY id ASC LIMIT 1",
+                ("mill-01",),
+            ).fetchone()
+
+        self.assertEqual(row["status"], "done")
+        self.assertEqual(row["progress"], 100)
 
 
 if __name__ == "__main__":

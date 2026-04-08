@@ -6,6 +6,7 @@ from fastapi import APIRouter, HTTPException, Query, Request, status
 
 from app.activity import log_activity, make_summary
 from app.allowed_devices import is_device_allowed
+from app.files import safe_device_relative_path
 from app.database import UPLOADS_DIR, get_connection, utc_now
 from app.models import CreateJobRequest, JobCreateResponse, JobDoneRequest, JobDoneResponse, JobInfo, UploadResponse
 
@@ -30,6 +31,14 @@ def safe_file_name(file_name: str | None) -> str:
     if file_name is None:
         return ""
     return Path(file_name).name.strip()
+
+
+def normalize_job_file_name(job_type: str, file_name: str | None) -> str:
+    if file_name is None:
+        return ""
+    if job_type == "upload_file":
+        return safe_device_relative_path(file_name).as_posix()
+    return safe_file_name(file_name)
 
 
 def save_upload_content(
@@ -212,7 +221,7 @@ async def upload_file(
 
 @router.post("/jobs", response_model=JobCreateResponse, status_code=status.HTTP_201_CREATED)
 def create_job(payload: CreateJobRequest) -> JobCreateResponse:
-    safe_name = safe_file_name(payload.file_name)
+    safe_name = normalize_job_file_name(payload.job_type, payload.file_name)
     if payload.job_type in {"download_file", "upload_file"} and not safe_name:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="file_name is required for file jobs")
 

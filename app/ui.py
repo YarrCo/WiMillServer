@@ -103,6 +103,20 @@ def refresh_device_files_ui(device_name: str):
     return redirect_with_message(f"/ui/files/device/{device_name}", f"Refresh files job created for {device_name}")
 
 
+@router.post("/ui/device/{device_name}/download")
+def download_from_device_ui(device_name: str, file_name: str = Form(...)):
+    create_job(
+        CreateJobRequest(
+            device_name=device_name,
+            file_name=file_name,
+            job_type="upload_file",
+            source="user",
+            note="ui download from device",
+        )
+    )
+    return redirect_with_message(f"/ui/files/device/{device_name}", f"Upload job created for {file_name}")
+
+
 @router.get("/ui/jobs")
 def jobs_page(request: Request, device_name: str | None = None, status: str | None = None):
     jobs = list_jobs(device_name=device_name, status_value=status, limit=200)
