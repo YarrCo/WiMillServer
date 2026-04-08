@@ -23,6 +23,9 @@ from app.models import (
 router = APIRouter()
 
 
+SD_ACCESS_JOB_TYPES = {"download_file", "upload_file", "refresh_files"}
+
+
 def update_device_state(
     connection,
     *,
@@ -183,6 +186,9 @@ def try_dispatch_job(connection, payload: DevicePollRequest):
         (payload.device_name,),
     ).fetchone()
     if next_job is None:
+        return None
+
+    if next_job["job_type"] in SD_ACCESS_JOB_TYPES and payload.usb_status != "detached":
         return None
 
     connection.execute(
